@@ -1,15 +1,55 @@
+import os
+
 import pandas as pd
 from Bio import SeqIO
+from Bio import Entrez
 
 
-with open('data/cells.txt') as f:
+wildcard_constraints:
+  reads="[^/]+",
+  barcode="[^/]+",
+
+macaque_accessions = [
+  "NC_027914.1",
+  "NC_041754.1",
+  "NC_041755.1",
+  "NC_041756.1",
+  "NC_041757.1",
+  "NC_041758.1",
+  "NC_041759.1",
+  "NC_041760.1",
+  "NC_041761.1",
+  "NC_041762.1",
+  "NC_041763.1",
+  "NC_041764.1",
+  "NC_041765.1",
+  "NC_041766.1",
+  "NC_041767.1",
+  "NC_041768.1",
+  "NC_041769.1",
+  "NC_041770.1",
+  "NC_041771.1",
+  "NC_041772.1",
+  "NC_041773.1",
+  "NC_041774.1"
+]
+
+with open('data/input/cells.txt') as f:
   barcodes = [line.strip() for line in f.readlines()]
+
+rule unzip_reads:
+  input:
+    "data/input/{reads}.fastq.gz"
+  output:
+    "data/{reads}.fastq"
+  shell:
+    "gunzip -c {input} > {output}"
 
 rule fastq_to_fasta:
   input:
-    'data/{dataset}.fastq'
+    rules.unzip_reads.output[0]
   output:
-    'data/{dataset}.fasta'
+    'data/{reads}.fasta'
   run:
     SeqIO.write(
       SeqIO.parse(input[0], 'fastq'),
@@ -17,43 +57,51 @@ rule fastq_to_fasta:
       'fasta'
     )
 
-rule blast:
-  input:
-    rules.fastq_to_fasta.output[0]
+rule ncbi_download:
   output:
-    "data/{dataset}-blast.csv"
-  shell:
-    "blastn -db /Volumes/Data/macaca-mulatta/blast/db -outfmt 10 -query {input} -out {output}"
-
-rule barcode_fasta:
-  input:
-    rules.fastq_to_fasta.output[0]
-  output:
-    'data/{barcode}/{dataset}.fasta'
-  shell:
-    'seqkit grep --by-seq --max-mismatch 1 --pattern "{wildcards.barcode}" {input} > {output}'
-
-rule barcode_csv:
-  input:
-    all_records=rules.fastq_to_fasta.output[0],
-    barcoded_records=rules.barcode_fasta.output[0]
-  output:
-    'data/{barcode}/{dataset}.csv'
+    ['data/macaque/%s.fasta' % accession for accession in macaque_accessions]
   run:
-    headers = [record.id for record in SeqIO.parse(input.all_records, 'fasta')]
-    barcode_hash = SeqIO.to_dict(SeqIO.parse(input.barcoded_records, 'fasta'))
-    contains_barcode = [header in barcode_hash for header in headers]
-    pd.DataFrame({wildcards.barcode: contains_barcode}).to_csv(output[0])
+    Entrez.email = os.environ.get('email') or 'sshank@temple.edu'
+    for accession in macaque_accessions:
+        record = Entrez.efetch(db="nucleotide", id=accession, rettype="fasta", retmode="text")
+        filename = 'data/macaque/{}.fasta'.format(accession)
+        print('Writing:{}'.format(filename))
+        with open(filename, "w") as f:
+            f.write(record.read())
 
-rule all_barcodes:
+rule full_macaque:
   input:
-    all_barcodes=expand('data/{barcode}/{{dataset}}.csv', barcode=barcodes),
-    all_records=rules.fastq_to_fasta.output[0],
+    rules.ncbi_download.output
   output:
-    'data/{dataset}-barcodes.csv'
-  run:
-    headrs = [record.id for record in SeqIO.parse(input.all_records, 'fasta')]
-    pd.concat([
-      pd.read_csv('data/%s/%s.csv' % (barcode, wildcards.dataset))[barcode]
-      for barcode in barcodes
-    ], axis=1).to_csv(output[0])
+    'data/macaque/genome.fasta'
+  shell:
+    'cat data/macaque/NC_*.fasta > {output}'
+
+rule macaque_blast_db:
+  input:
+    rules.full_macaque.output[0]
+  output:
+    "data/macaque/blast.nhr",
+    "data/macaque/blast.nin",
+    "data/macaque/blast.nsq"
+  shell:
+    "makeblastdb -in {input} -dbtype nucl -out data/macaque/blast"
+
+rule make_header:
+  output:
+    "data/header.csv"
+  shell:
+    "echo qaccver,saccver,pident,length,mismatch,gapopen,qstart,qend,sstart,send,evalue,bitscore > {output}"
+
+rule macaque_blast:
+  input:
+    fasta=rules.fastq_to_fasta.output[0],
+    macaque_db=rules.macaque_blast_db.output
+  output:
+    no_header=temp("data/{reads}-blast-no_header.csv"),
+    header="data/{reads}-blast.csv",
+  shell:
+    """
+      blastn -db data/macaque/blast -outfmt 10 -query {input.fasta} -out {output.no_header}
+      cat {input} {output.no_header} > {output.header}
+    """
