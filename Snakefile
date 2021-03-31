@@ -155,6 +155,6 @@ rule barcode_blast:
     header="data/barcodes/{reads}-blast.csv"
   shell:
     """
-      blastn -db data/macaque/blast -outfmt 10 -query {input.fasta} -word_size 18 -evalue 1000 -out {output.no_header}
+      blastn -db data/macaque/blast -outfmt 10 -query {input.fasta} -word_size 12 -evalue 1000 -out {output.no_header}
       cat {input} {output.no_header} > {output.header}
     """
