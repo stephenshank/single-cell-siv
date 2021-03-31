@@ -2,6 +2,8 @@ import os
 
 import pandas as pd
 from Bio import SeqIO
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
 from Bio import Entrez
 
 
@@ -34,8 +36,15 @@ macaque_accessions = [
   "NC_041774.1"
 ]
 
-with open('data/input/cells.txt') as f:
-  barcodes = [line.strip() for line in f.readlines()]
+constant_region = 'AGTACGTACGAGTC'
+
+
+rule all:
+  input:
+    "data/barcodes/reads-blast.csv",
+    "data/barcodes/mates-blast.csv",
+    "data/macaque/reads-blast.csv",
+    "data/macaque/mates-blast.csv"
 
 rule unzip_reads:
   input:
@@ -98,10 +107,54 @@ rule macaque_blast:
     fasta=rules.fastq_to_fasta.output[0],
     macaque_db=rules.macaque_blast_db.output
   output:
-    no_header=temp("data/{reads}-blast-no_header.csv"),
-    header="data/{reads}-blast.csv",
+    no_header=temp("data/macaque/{reads}-blast-no_header.csv"),
+    header="data/macaque/{reads}-blast.csv"
   shell:
     """
       blastn -db data/macaque/blast -outfmt 10 -query {input.fasta} -word_size 64 -evalue 1000 -out {output.no_header}
+      cat {input} {output.no_header} > {output.header}
+    """
+
+rule cells_fasta:
+  input:
+    "data/input/cells.txt"
+  output:
+    "data/cells.fasta"
+  run:
+    with open(input[0]) as cells_file:
+      barcodes = [line.strip() for line in cells_file.readlines()]
+    SeqIO.write(
+      [
+        SeqRecord(
+          Seq(barcode[:9] + constant_region + barcode[-9:]),
+          id='barcode_%d' % i,
+          description=''
+        )
+        for i, barcode in enumerate(barcodes)
+      ],
+      output[0],
+      'fasta'
+    )
+
+rule barcode_blast_db:
+  input:
+    rules.cells_fasta.output[0]
+  output:
+    "data/barcodes/blast.nhr",
+    "data/barcodes/blast.nin",
+    "data/barcodes/blast.nsq"
+  shell:
+    "makeblastdb -in {input} -dbtype nucl -out data/barcodes/blast"
+
+rule barcode_blast:
+  input:
+    fasta=rules.fastq_to_fasta.output[0],
+    blast_db=rules.barcode_blast_db.output
+  output:
+    no_header=temp("data/barcodes/{reads}-blast-no_header.csv"),
+    header="data/barcodes/{reads}-blast.csv"
+  shell:
+    """
+      blastn -db data/macaque/blast -outfmt 10 -query {input.fasta} -word_size 18 -evalue 1000 -out {output.no_header}
       cat {input} {output.no_header} > {output.header}
     """
