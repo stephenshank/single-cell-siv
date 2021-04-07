@@ -105,14 +105,15 @@ rule make_header:
 rule macaque_blast:
   input:
     fasta=rules.fastq_to_fasta.output[0],
-    macaque_db=rules.macaque_blast_db.output
+    macaque_db=rules.macaque_blast_db.output,
+    header=rules.make_header.output[0]
   output:
     no_header=temp("data/macaque/{reads}-blast-no_header.csv"),
     header="data/macaque/{reads}-blast.csv"
   shell:
     """
       blastn -db data/macaque/blast -outfmt 10 -query {input.fasta} -word_size 64 -evalue 1000 -out {output.no_header}
-      cat {input} {output.no_header} > {output.header}
+      cat {input.header} {output.no_header} > {output.header}
     """
 
 rule cells_fasta:
@@ -149,12 +150,13 @@ rule barcode_blast_db:
 rule barcode_blast:
   input:
     fasta=rules.fastq_to_fasta.output[0],
-    blast_db=rules.barcode_blast_db.output
+    blast_db=rules.barcode_blast_db.output,
+    header=rules.make_header.output[0]
   output:
     no_header=temp("data/barcodes/{reads}-blast-no_header.csv"),
     header="data/barcodes/{reads}-blast.csv"
   shell:
     """
       blastn -db data/barcodes/blast -outfmt 10 -query {input.fasta} -word_size 12 -evalue 1000 -out {output.no_header}
-      cat {input} {output.no_header} > {output.header}
+      cat {input.header} {output.no_header} > {output.header}
     """
