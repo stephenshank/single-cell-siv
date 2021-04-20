@@ -147,6 +147,16 @@ rule barcode_blast_db:
   shell:
     "makeblastdb -in {input} -dbtype nucl -out data/barcodes/blast"
 
+rule extract_best_hits:
+  input:
+    rules.macaque_blast.output.header
+  output:
+    "data/macaque/{reads}-besthits.csv"
+  run:
+    all_hits = pd.read_csv(input[0])
+    best_hit_indices = all_hits.groupby('qaccver').evalue.idxmin()
+    all_hits.loc[best_hit_indices].to_csv(output[0])
+
 rule barcode_blast:
   input:
     fasta=rules.fastq_to_fasta.output[0],
@@ -157,6 +167,6 @@ rule barcode_blast:
     header="data/barcodes/{reads}-blast.csv"
   shell:
     """
-      blastn -db data/barcodes/blast -outfmt 10 -query {input.fasta} -word_size 12 -evalue 1000 -out {output.no_header}
+      blastn -db data/barcodes/blast -outfmt 10 -query {input.fasta} -word_size 16 -evalue 1000 -out {output.no_header}
       cat {input.header} {output.no_header} > {output.header}
     """
