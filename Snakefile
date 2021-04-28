@@ -10,6 +10,7 @@ from Bio import Entrez
 wildcard_constraints:
   reads="[^/]+",
   barcode="[^/]+",
+  database="[^/]+",
 
 macaque_accessions = [
   "NC_027914.1",
@@ -147,6 +148,16 @@ rule barcode_blast_db:
   shell:
     "makeblastdb -in {input} -dbtype nucl -out data/barcodes/blast"
 
+rule siv_blast_db:
+  input:
+    "data/input/KU892415.1.fasta"
+  output:
+    "data/siv/blast.nhr",
+    "data/siv/blast.nin",
+    "data/siv/blast.nsq"
+  shell:
+    "makeblastdb -in {input} -dbtype nucl -out data/siv/blast"
+
 rule extract_best_hits:
   input:
     rules.macaque_blast.output.header
@@ -168,5 +179,19 @@ rule barcode_blast:
   shell:
     """
       blastn -db data/barcodes/blast -outfmt 10 -query {input.fasta} -word_size 16 -evalue 1000 -out {output.no_header}
+      cat {input.header} {output.no_header} > {output.header}
+    """
+
+rule siv_blast:
+  input:
+    fasta=rules.fastq_to_fasta.output[0],
+    blast_db=rules.siv_blast_db.output,
+    header=rules.make_header.output[0]
+  output:
+    no_header=temp("data/siv/{reads}-blast-no_header.csv"),
+    header="data/siv/{reads}-blast.csv"
+  shell:
+    """
+      blastn -db data/siv/blast -outfmt 10 -query {input.fasta} -word_size 64 -evalue 1000 -out {output.no_header}
       cat {input.header} {output.no_header} > {output.header}
     """
